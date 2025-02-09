@@ -1,0 +1,78 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - /app/__pycache__
+    env_file:
+      - ./backend/.env
+    environment:
+      - PYTHONUNBUFFERED=1
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+      - "24678:24678"  # WebSocket port for HMR
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.vite
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+      - WATCHPACK_POLLING=true
+      - FAST_REFRESH=true
+      - VITE_DEV_SERVER_HOST=0.0.0.0
+      - VITE_DEV_SERVER_PORT=3000
+      - VITE_HMR_HOST=frontend
+      - VITE_HMR_PORT=24678
+      - NODE_ENV=development
+      - VITE_HMR_HOSTNAME=localhost
+    networks:
+      default:
+        aliases:
+          - frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  e2e:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.e2e
+    depends_on:
+      frontend:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    environment:
+      - PLAYWRIGHT_TEST_BASE_URL=http://frontend:3000
+      - API_BASE_URL=http://backend:8000
+      - DEBUG=true
+    command: npm run test:e2e
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - ./playwright-results:/app/playwright-report
+
+networks:
+  default:
+    driver: bridge

@@ -1,0 +1,152 @@
+# AZURE_DEPLOYMENT: GitHub Actions workflow for CI pipeline
+# PIPELINE_TYPE: GitHub Actions
+# DEPLOYMENT_ENVIRONMENT: CI
+# TEST_TYPES: Unit Tests, Integration Tests, E2E Tests
+
+name: CI
+
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Cache Docker layers
+      uses: actions/cache@v3
+      with:
+        path: /tmp/.buildx-cache
+        key: ${{ runner.os }}-buildx-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-buildx-
+    
+    - name: Run unit tests
+      run: |
+        # Build and run backend tests
+        docker-compose -f docker-compose.yml -f docker-compose.ci.yml build backend
+        docker-compose -f docker-compose.yml -f docker-compose.ci.yml run --rm backend pytest
+        
+        # Build and run frontend tests
+        docker-compose -f docker-compose.yml -f docker-compose.ci.yml build frontend
+        docker-compose -f docker-compose.yml -f docker-compose.ci.yml run --rm frontend npm test
+
+  integration-tests:
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Cache Docker layers
+      uses: actions/cache@v3
+      with:
+        path: /tmp/.buildx-cache
+        key: ${{ runner.os }}-buildx-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-buildx-
+    
+    - name: Run E2E tests
+      run: |
+        docker-compose -f docker-compose.yml -f docker-compose.ci.yml up --build --exit-code-from e2e e2e
+      env:
+        DOCKER_BUILDKIT: 1
+    
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: playwright-report
+        path: playwright-results/
+        retention-days: 30
+    
+    - name: Cleanup
+      if: always()
+      run: docker-compose -f docker-compose.yml -f docker-compose.ci.yml down -v
+
+  deploy:
+    needs: integration-tests
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://${{ vars.AZURE_APP_HOSTNAME }}
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Azure login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+    
+    - name: Login to Azure Container Registry
+      uses: azure/docker-login@v1
+      with:
+        login-server: ${{ secrets.REGISTRY_LOGIN_SERVER }}
+        username: ${{ secrets.REGISTRY_USERNAME }}
+        password: ${{ secrets.REGISTRY_PASSWORD }}
+    
+    - name: Build and push images
+      env:
+        ACR_REGISTRY: ${{ secrets.REGISTRY_LOGIN_SERVER }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        # Build and push frontend
+        docker build -f frontend/Dockerfile.prod \
+          --build-arg API_URL=https://api.${{ vars.AZURE_APP_HOSTNAME }} \
+          -t $ACR_REGISTRY/frontend:$IMAGE_TAG \
+          -t $ACR_REGISTRY/frontend:latest \
+          ./frontend
+        docker push $ACR_REGISTRY/frontend:$IMAGE_TAG
+        docker push $ACR_REGISTRY/frontend:latest
+        
+        # Build and push backend
+        docker build -f backend/Dockerfile.prod \
+          -t $ACR_REGISTRY/backend:$IMAGE_TAG \
+          -t $ACR_REGISTRY/backend:latest \
+          ./backend
+        docker push $ACR_REGISTRY/backend:$IMAGE_TAG
+        docker push $ACR_REGISTRY/backend:latest
+    
+    - name: Deploy to Azure Container Apps
+      uses: azure/CLI@v1
+      with:
+        inlineScript: |
+          # Update frontend Container App
+          az containerapp update \
+            --name frontend \
+            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+            --image ${{ secrets.REGISTRY_LOGIN_SERVER }}/frontend:${{ github.sha }} \
+            --set-env-vars AZURE_APP_HOSTNAME=${{ vars.AZURE_APP_HOSTNAME }}
+          
+          # Update backend Container App
+          az containerapp update \
+            --name backend \
+            --resource-group ${{ vars.AZURE_RESOURCE_GROUP }} \
+            --image ${{ secrets.REGISTRY_LOGIN_SERVER }}/backend:${{ github.sha }} \
+            --set-env-vars \
+              ENVIRONMENT=production \
+              BACKEND_CORS_ORIGINS='["https://${{ vars.AZURE_APP_HOSTNAME }}"]'
+    
+    - name: Verify Deployment
+      run: |
+        # Give services time to start
+        sleep 30
+        
+        # Verify both services are responding
+        curl -f https://api.${{ vars.AZURE_APP_HOSTNAME }}/api/health
+        curl -f https://${{ vars.AZURE_APP_HOSTNAME }}
+    
+    - name: Tag Release
+      if: success()
+      run: |
+        git tag v$(date +%Y%m%d.%H%M%S)-${{ github.sha }}
+        git push origin --tags

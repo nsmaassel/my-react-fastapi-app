@@ -1,0 +1,44 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    environment:
+      - ENVIRONMENT=ci
+      - BACKEND_CORS_ORIGINS=["http://frontend:3000"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    environment:
+      - NODE_ENV=production
+      - VITE_API_URL=http://backend:8000
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  e2e:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.e2e
+    environment:
+      - CI=true
+      - PLAYWRIGHT_TEST_BASE_URL=http://frontend:3000
+      - API_BASE_URL=http://backend:8000
+    volumes:
+      - ./playwright-results:/app/playwright-report
+    depends_on:
+      frontend:
+        condition: service_healthy
+      backend:
+        condition: service_healthy

@@ -1,0 +1,7 @@
+#!/bin/sh
+
+# Run all checks using Docker
+docker-compose up --build --exit-code-from e2e e2e
+
+# If everything passes, allow the commit
+exit $?
