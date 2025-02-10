@@ -1,0 +1,27 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "environmentName": {
+            "value": "prod"
+        },
+        "containerRegistryName": {
+            "value": "GEN-UNIQUE"
+        },
+        "location": {
+            "value": "[resourceGroup().location]"
+        },
+        "customDomainName": {
+            "value": ""
+        },
+        "deployGitHubAction": {
+            "value": false
+        },
+        "githubRepositoryUrl": {
+            "value": ""
+        }
+    },
+    "metadata": {
+        "description": "Parameters for deploying the React + FastAPI application to Azure Container Apps"
+    }
+}

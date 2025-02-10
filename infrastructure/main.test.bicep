@@ -1,26 +1,19 @@
 param location string = resourceGroup().location
 param environmentName string
 param containerRegistryName string
-param customDomainName string = ''
-param deployGitHubAction bool = true
-param githubRepositoryUrl string = ''
+param frontendAppName string = 'frontend'
+param backendAppName string = 'backend'
 
-// Create Azure Container Registry with Premium SKU for production
+// Create Azure Container Registry with Basic SKU for testing
 resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
   name: containerRegistryName
   location: location
   sku: {
-    name: 'Premium'
+    name: 'Basic'
   }
   properties: {
     adminUserEnabled: true
   }
-}
-
-// Create Managed Identity for Container Apps
-resource managedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
-  name: '${environmentName}-identity'
-  location: location
 }
 
 // Create Log Analytics Workspace
@@ -62,50 +55,39 @@ resource containerAppEnv 'Microsoft.App/managedEnvironments@2023-05-01' = {
         sharedKey: logAnalytics.listKeys().primarySharedKey
       }
     }
-    zoneRedundant: true
-    workloadProfiles: [
-      {
-        name: 'Consumption'
-        workloadProfileType: 'Consumption'
-      }
-    ]
+    zoneRedundant: false
   }
 }
 
-// Create Backend Container App
+// Create Backend Container App first
 resource backendApp 'Microsoft.App/containerApps@2023-05-01' = {
-  name: 'backend'
+  name: backendAppName
   location: location
-  identity: {
-    type: 'UserAssigned'
-    userAssignedIdentities: {
-      '${managedIdentity.id}': {}
-    }
-  }
   properties: {
     managedEnvironmentId: containerAppEnv.id
     configuration: {
       ingress: {
         external: true
         targetPort: 8000
-        customDomains: !empty(customDomainName) ? [
-          {
-            name: 'api.${customDomainName}'
-            bindingType: 'SniEnabled'
-          }
-        ] : []
       }
       registries: [
         {
           server: acr.properties.loginServer
-          identity: managedIdentity.id
+          username: acr.listCredentials().username
+          passwordSecretRef: 'registry-password'
+        }
+      ]
+      secrets: [
+        {
+          name: 'registry-password'
+          value: acr.listCredentials().passwords[0].value
         }
       ]
     }
     template: {
       containers: [
         {
-          name: 'backend'
+          name: backendAppName
           image: '${acr.properties.loginServer}/backend:latest'
           env: [
             {
@@ -124,14 +106,10 @@ resource backendApp 'Microsoft.App/containerApps@2023-05-01' = {
               name: 'KEEP_ALIVE'
               value: '75'
             }
-            {
-              name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
-              value: appInsights.properties.ConnectionString
-            }
           ]
           resources: {
-            cpu: json('1.0')
-            memory: '2Gi'
+            cpu: json('0.5')
+            memory: '1Gi'
           }
           probes: [
             {
@@ -142,6 +120,8 @@ resource backendApp 'Microsoft.App/containerApps@2023-05-01' = {
               }
               initialDelaySeconds: 15
               periodSeconds: 30
+              timeoutSeconds: 5
+              failureThreshold: 3
             }
             {
               type: 'readiness'
@@ -151,62 +131,48 @@ resource backendApp 'Microsoft.App/containerApps@2023-05-01' = {
               }
               initialDelaySeconds: 5
               periodSeconds: 10
+              timeoutSeconds: 5
             }
           ]
         }
       ]
       scale: {
-        minReplicas: 2
-        maxReplicas: 10
-        rules: [
-          {
-            name: 'http-rule'
-            http: {
-              metadata: {
-                concurrentRequests: '100'
-              }
-            }
-          }
-        ]
+        minReplicas: 1
+        maxReplicas: 3
       }
     }
   }
 }
 
-// Create Frontend Container App
+// Create Frontend Container App after backend
 resource frontendApp 'Microsoft.App/containerApps@2023-05-01' = {
-  name: 'frontend'
+  name: frontendAppName
   location: location
-  identity: {
-    type: 'UserAssigned'
-    userAssignedIdentities: {
-      '${managedIdentity.id}': {}
-    }
-  }
   properties: {
     managedEnvironmentId: containerAppEnv.id
     configuration: {
       ingress: {
         external: true
         targetPort: 80
-        customDomains: !empty(customDomainName) ? [
-          {
-            name: customDomainName
-            bindingType: 'SniEnabled'
-          }
-        ] : []
       }
       registries: [
         {
           server: acr.properties.loginServer
-          identity: managedIdentity.id
+          username: acr.listCredentials().username
+          passwordSecretRef: 'registry-password'
+        }
+      ]
+      secrets: [
+        {
+          name: 'registry-password'
+          value: acr.listCredentials().passwords[0].value
         }
       ]
     }
     template: {
       containers: [
         {
-          name: 'frontend'
+          name: frontendAppName
           image: '${acr.properties.loginServer}/frontend:latest'
           env: [
             {
@@ -215,12 +181,12 @@ resource frontendApp 'Microsoft.App/containerApps@2023-05-01' = {
             }
             {
               name: 'VITE_API_URL'
-              value: !empty(customDomainName) ? 'https://api.${customDomainName}' : 'https://${backendApp.properties.configuration.ingress.fqdn}'
+              value: 'https://${backendApp.properties.configuration.ingress.fqdn}'
             }
           ]
           resources: {
-            cpu: json('1.0')
-            memory: '2Gi'
+            cpu: json('0.5')
+            memory: '1Gi'
           }
           probes: [
             {
@@ -245,36 +211,13 @@ resource frontendApp 'Microsoft.App/containerApps@2023-05-01' = {
         }
       ]
       scale: {
-        minReplicas: 2
-        maxReplicas: 10
-        rules: [
-          {
-            name: 'http-rule'
-            http: {
-              metadata: {
-                concurrentRequests: '100'
-              }
-            }
-          }
-        ]
+        minReplicas: 1
+        maxReplicas: 3
       }
     }
   }
 }
 
-// Add GitHub Action federated credentials if requested
-resource federatedCredential 'Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials@2023-01-31' = if (deployGitHubAction && !empty(githubRepositoryUrl)) {
-  parent: managedIdentity
-  name: 'github-action'
-  properties: {
-    audiences: ['api://AzureADTokenExchange']
-    issuer: 'https://token.actions.githubusercontent.com'
-    subject: 'repo:${replace(replace(githubRepositoryUrl, 'https://github.com/', ''), '//', '/')}:environment:production'
-  }
-}
-
 output acrLoginServer string = acr.properties.loginServer
-output frontendUrl string = !empty(customDomainName) ? 'https://${customDomainName}' : 'https://${frontendApp.properties.configuration.ingress.fqdn}'
-output backendUrl string = !empty(customDomainName) ? 'https://api.${customDomainName}' : 'https://${backendApp.properties.configuration.ingress.fqdn}'
-output managedIdentityPrincipalId string = managedIdentity.properties.principalId
-output appInsightsConnectionString string = appInsights.properties.ConnectionString
+output frontendUrl string = 'https://${frontendApp.properties.configuration.ingress.fqdn}'
+output backendUrl string = 'https://${backendApp.properties.configuration.ingress.fqdn}'

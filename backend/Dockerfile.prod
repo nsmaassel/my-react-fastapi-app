@@ -29,8 +29,9 @@ COPY --from=builder /app/requirements.txt .
 # Install Python packages from wheels
 RUN pip install --no-cache /app/wheels/*
 
-# Copy application code
-COPY ./app /app
+# Copy application code - fixed directory structure
+COPY . /app
+ENV PYTHONPATH=/app
 
 # Set production environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \

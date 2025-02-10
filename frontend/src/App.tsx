@@ -3,6 +3,33 @@ import reactLogo from './assets/react.svg'
 import viteLogo from '/vite.svg'
 import './App.css'
 
+// Get the API URL from environment variables with absolute URL validation
+const getApiBaseUrl = (): string => {
+  // Try runtime env first (from env.js)
+  const runtimeUrl = window.env?.VITE_API_URL;
+  // Fallback to build-time env
+  const buildUrl = import.meta.env.VITE_API_URL;
+  
+  const finalUrl = runtimeUrl || buildUrl;
+  
+  if (!finalUrl) {
+    console.warn('No API URL found in environment variables!');
+    return '';
+  }
+
+  // Ensure URL is absolute and properly formatted
+  try {
+    new URL(finalUrl); // This will throw if URL is invalid
+    console.log('Using API URL:', finalUrl);
+    return finalUrl.endsWith('/') ? finalUrl.slice(0, -1) : finalUrl;
+  } catch (e) {
+    console.error('Invalid API URL:', finalUrl);
+    return '';
+  }
+};
+
+const apiBaseUrl = getApiBaseUrl();
+
 interface Item {
   item_id: number;
   name: string;
@@ -35,10 +62,35 @@ function App() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    if (!apiBaseUrl) {
+      setError('No valid API URL configured. Please check your environment variables.');
+      setLoading(false);
+      return;
+    }
+
+    // Helper function to handle API calls
+    const fetchApi = async (endpoint: string) => {
+      // Ensure we're using absolute URLs correctly
+      const url = endpoint.startsWith('http') ? endpoint : `${apiBaseUrl}${endpoint}`;
+      console.log('Fetching from:', url);
+      
+      try {
+        const response = await fetch(url);
+        if (!response.ok) {
+          throw new Error(`API call failed: ${endpoint} (Status: ${response.status})`);
+        }
+        return response.json();
+      } catch (error) {
+        console.error('API call error:', error);
+        throw error;
+      }
+    };
+
+    // Use absolute URLs for API calls
     Promise.all([
-      fetch('/api/health').then(res => res.json()),
-      fetch('/api/items').then(res => res.json()),
-      fetch('/api/categories').then(res => res.json())
+      fetchApi(`${apiBaseUrl}/api/health`),
+      fetchApi(`${apiBaseUrl}/api/items`),
+      fetchApi(`${apiBaseUrl}/api/categories`)
     ])
       .then(([healthData, itemsData, categoriesData]) => {
         setHealth(healthData)
@@ -46,8 +98,9 @@ function App() {
         setCategories(categoriesData)
         setLoading(false)
       })
-      .catch(err => {
-        setError('Failed to connect to backend')
+      .catch((error) => {
+        console.error('API Error:', error)
+        setError(`Failed to connect to backend: ${error.message}`)
         setLoading(false)
       })
   }, [])

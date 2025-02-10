@@ -62,13 +62,29 @@ last_request_time = None
 
 def parse_cors_origins(origins_str: Optional[str] = None) -> List[str]:
     """Parse CORS origins from environment variable or use defaults."""
-    default_origins = ["http://localhost:3000", "http://frontend:3000", "http://localhost", "http://frontend"]
+    environment = os.getenv("ENVIRONMENT", "development")
+    
+    # Default origins for different environments
+    default_origins = {
+        "development": [
+            "http://localhost:3000",
+            "http://frontend:3000",
+            "http://localhost",
+            "http://frontend"
+        ],
+        "production": [
+            "https://*.azurecontainerapps.io",  # Allow Azure Container Apps URLs
+            "https://*.azurewebsites.net"       # Allow Azure Web Apps URLs
+        ]
+    }
+    
     if not origins_str:
-        return default_origins
+        return default_origins.get(environment, default_origins["development"])
+    
     try:
         return eval(origins_str)  # type: ignore
     except (SyntaxError, ValueError):
-        return default_origins
+        return default_origins.get(environment, default_origins["development"])
 
 # Get CORS origins from environment variable or use defaults
 origins: List[str] = parse_cors_origins(os.getenv("BACKEND_CORS_ORIGINS"))
@@ -79,7 +95,8 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["*"]
+    expose_headers=["*"],
+    allow_origin_regex=r"https://.*\.azurecontainerapps\.io"  # Additional safety for Azure Container Apps URLs
 )
 
 DEMO_ITEMS = [
@@ -263,4 +280,44 @@ async def health_check() -> Dict[str, Union[str, List[str], DemoMetrics]]:
         ],
         "timestamp": datetime.now().isoformat(),
         "metrics": get_demo_metrics()
+    }
+
+@app.get("/api/health/detailed", response_model=dict)
+async def detailed_health_check():
+    """Detailed health check endpoint with environment and CORS information."""
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "environment": os.getenv("ENVIRONMENT", "development"),
+        "cors_origins": origins,
+        "config": {
+            "workers": os.getenv("WORKERS_COUNT", "1"),
+            "timeout": os.getenv("TIMEOUT", "75"),
+            "keep_alive": os.getenv("KEEP_ALIVE", "75")
+        }
+    }
+
+@app.get("/api/health/cors", response_model=dict)
+async def cors_health_check():
+    """Health check endpoint with CORS configuration details."""
+    environment = os.getenv("ENVIRONMENT", "development")
+    raw_origins = os.getenv("BACKEND_CORS_ORIGINS")
+    
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "environment": environment,
+        "cors_config": {
+            "raw_origins": raw_origins,
+            "parsed_origins": origins,
+            "allow_credentials": True,
+            "allow_methods": ["*"],
+            "allow_headers": ["*"],
+            "allow_origin_regex": r"https://.*\.azurecontainerapps\.io"
+        },
+        "deployment_info": {
+            "workers": os.getenv("WORKERS_COUNT", "1"),
+            "timeout": os.getenv("TIMEOUT", "75"),
+            "keep_alive": os.getenv("KEEP_ALIVE", "75")
+        }
     }

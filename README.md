@@ -1,7 +1,8 @@
 # Containerized React + FastAPI Demo
-
 <!-- CICD_DEPLOYMENT_CONFIG: React + FastAPI application with Azure Container Apps deployment -->
 <!-- AZURE_DEPLOYMENT: True -->
+<!-- PLATFORM: Windows -->
+[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fnsmaassel%2Fmy-react-fastapi-app%2Fmain%2Finfrastructure%2Fazuredeploy.json)
 
 A minimal, production-ready demo showing how to:
 1. Run React and FastAPI applications in Docker
@@ -9,160 +10,160 @@ A minimal, production-ready demo showing how to:
 3. Handle development hot-reloading in containers
 4. Implement end-to-end testing for containerized apps
 
-## Quick Start
+## System Requirements
+- Windows 10/11 with PowerShell or Command Prompt
+- [Docker Desktop for Windows](https://docs.docker.com/desktop/windows/install/)
+- [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli-windows)
 
-Prerequisites:
-- [Docker](https://docs.docker.com/get-docker/)
-- [Docker Compose](https://docs.docker.com/compose/install/)
-
-```bash
-# Clone and start
+## Quick Start (Local Development)
+```batch
+# Clone and start development environment
 git clone https://github.com/yourusername/react-fastapi-docker-demo
 cd react-fastapi-docker-demo
-docker-compose up
+scripts\test-deployment.bat up
 ```
 
-Then visit:
+Access your local deployment:
 - Frontend: http://localhost:3000
 - API Docs: http://localhost:8000/api/docs
+- Health Check: http://localhost:8000/api/health
 
-## What's Included
+## Architecture
 
-### Frontend (React + TypeScript + Vite)
+### Frontend-Backend Communication
+The application uses a robust URL configuration system:
+
+1. **Development:**
+   - Frontend proxy configuration in Vite
+   - Automatic routing of `/api` requests
+   - Hot-reloading enabled
+
+2. **Production:**
+   - Runtime configuration via `env.js`
+   - Build-time configuration via `VITE_API_URL`
+   - Absolute URLs for API requests
+
+3. **URL Priority:**
+   ```
+   Runtime (env.js) → Build-time (VITE_API_URL) → Development Proxy
+   ```
+
+### Key Components
+
+#### Frontend (React + TypeScript + Vite)
 - Production-grade React setup with TypeScript
-- Hot Module Replacement (HMR) working in Docker
-- Proxy configuration for API requests
+- Dynamic runtime configuration
 - End-to-end tests with Playwright
 
-### Backend (FastAPI + Python)
+#### Backend (FastAPI + Python)
 - RESTful API with automatic documentation
-- Health checks and monitoring endpoints
-- CORS configuration for frontend requests
-- Production-ready with Gunicorn
+- Health checks and monitoring
+- Environment-aware CORS configuration
 
-### Docker Configuration
-- Development environment with hot-reload
-- Production builds with multi-stage Dockerfiles
-- Container health checks and networking
-- End-to-end test environment
+## Deployment Options
+
+### 1. Quick Deploy to Azure (One-time Setup)
+Click the "Deploy to Azure" button above and provide:
+- Resource Group name (new or existing)
+- Region
+- Environment Name (e.g., 'prod' or 'staging')
+- Container Registry name (must be globally unique)
+
+No GitHub account or additional credentials needed - just your Azure login.
+
+### 2. Continuous Deployment with GitHub Actions
+For automated deployments on every push to main:
+1. First deploy using the "Deploy to Azure" button above
+2. Set up GitHub Actions by following [DEPLOYMENT_CHECKLIST.md](DEPLOYMENT_CHECKLIST.md)
+
+### 3. Script-based Deployment (Windows)
+```batch
+# Deploy test environment
+cd infrastructure
+deploy-test.bat -d -n yourprojectname -e test
+
+# Clean up resources
+deploy-test.bat -c -n yourprojectname -e test
+```
+
+### 4. Manual Deployment Steps
+See [DEPLOYMENT_CHECKLIST.md](DEPLOYMENT_CHECKLIST.md) for step-by-step instructions.
 
 ## Development Workflow
 
-1. Start development environment:
-```bash
-docker-compose up
+1. Start the development environment:
+```batch
+scripts\test-deployment.bat up
 ```
 
-2. Make changes to either frontend or backend code - they will auto-reload
+2. Make changes - both frontend and backend support hot-reload
 
 3. Run tests:
-```bash
-docker-compose up e2e
+```batch
+scripts\test-deployment.bat test
 ```
 
-## Production Deployment
-
-1. Build production images:
-```bash
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml build
+4. Clean up:
+```batch
+scripts\test-deployment.bat clean
 ```
-
-2. Run production stack:
-```bash
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml up
-```
-
-Azure deployment instructions available in [AZURE_SETUP.md](AZURE_SETUP.md).
-
-## Deployment & CI/CD
-
-This project is configured for deployment to Azure Container Apps with a complete CI/CD pipeline.
-
-### Key Files
-- `.github/workflows/` - CI/CD pipeline configurations
-- `infrastructure/` - Azure infrastructure as code (Bicep)
-- `AZURE_SETUP.md` - Complete Azure deployment guide
-- `docker-compose.ci.yml` - CI/CD specific Docker configuration
-
-See [AZURE_SETUP.md](AZURE_SETUP.md) for complete deployment instructions.
 
 ## Project Structure
 ```
 .
-├── frontend/                # React application
-│   ├── src/                # React source code
-│   ├── e2e/                # Playwright tests
-│   └── Dockerfile*         # Dev, prod, and e2e builds
-├── backend/                # FastAPI application
-│   ├── app/               # API source code
-│   ├── tests/             # Python tests
-│   └── Dockerfile*        # Dev and prod builds
-└── docker-compose*.yml    # Dev, prod, and CI configs
-```
-
-## Key Features Demonstrated
-
-1. **Docker Development Environment**
-   - Hot-reloading for both React and FastAPI
-   - Volume mounts for local development
-   - Container health checks
-
-2. **Frontend-Backend Integration**
-   - API proxy configuration
-   - CORS setup
-   - TypeScript interfaces for API types
-
-3. **Testing Strategy**
-   - End-to-end tests with Playwright
-   - Container-aware test configuration
-   - CI/CD ready test setup
-
-## Common Tasks
-
-### Adding Backend Dependencies
-1. Add to `backend/requirements.txt`
-2. Rebuild backend container:
-```bash
-docker-compose build backend
-```
-
-### Adding Frontend Dependencies
-1. Add to `frontend/package.json`
-2. Rebuild frontend container:
-```bash
-docker-compose build frontend
-```
-
-### Running Specific Tests
-```bash
-# Run specific e2e test
-docker-compose run --rm e2e npx playwright test my-test.spec.ts
+├── frontend/              # React application
+│   ├── src/              # React source code
+│   ├── e2e/              # Playwright tests
+│   └── nginx.conf        # Production server config
+├── backend/              # FastAPI application
+│   ├── app/             # API source code
+│   └── tests/           # Python tests
+├── infrastructure/       # Deployment configuration
+│   ├── *.bicep          # Azure infrastructure as code
+│   └── deploy-*.bat     # Deployment scripts
+├── scripts/             # Development utilities
+└── docs/               # Documentation
 ```
 
 ## Troubleshooting
 
-1. **HMR Not Working**
-   - Check WebSocket port exposure (24678)
-   - Verify frontend container logs
-   - Ensure proper network configuration
+### API Connection Issues
+1. Check browser console for API URL
+2. Verify env.js contains correct backend URL
+3. Confirm CORS configuration matches frontend origin
+4. Check Container App logs for connection errors
 
-2. **Backend Not Responding**
-   - Check backend health at `/api/health`
-   - Verify CORS settings
+### Development Environment
+1. **Hot-reload not working:**
+   - Verify WebSocket ports (24678)
    - Check container logs
+   - Restart development containers
 
-3. **Tests Failing**
-   - Increase timeouts for containerized environment
-   - Check container connectivity
-   - Verify test environment variables
+2. **API not responding:**
+   - Check `/api/health` endpoint
+   - Verify proxy configuration
+   - Review container logs
 
-## Learn More
+### Production Deployment
+1. **Frontend can't reach backend:**
+   - Verify Container Apps URLs
+   - Check environment variables
+   - Confirm CORS settings
 
+2. **Resource cleanup:**
+   - Remove unused resource groups
+   - Clean up old Container App revisions
+   - Delete unused container images
+
+## Additional Resources
+- [Deployment Tips](docs/DEPLOYMENT_TIPS.md)
+- [Scripts Reference](docs/SCRIPTS.md)
+- [Azure Setup Guide](AZURE_SETUP.md)
 - [FastAPI Documentation](https://fastapi.tiangolo.com/)
 - [React Documentation](https://react.dev/)
-- [Docker Documentation](https://docs.docker.com/)
-- [Playwright Documentation](https://playwright.dev/)
+
+## Platform Support
+This project is optimized for Windows environments. The deployment scripts (`*.bat`) and tooling assume a Windows environment with PowerShell or Command Prompt. For other platforms, you'll need to adapt the scripts accordingly.
 
 ## License
-
 MIT

@@ -10,6 +10,13 @@ RUN npm ci
 # Copy source code
 COPY . .
 
+# Build argument for API URL
+ARG VITE_API_URL
+ENV VITE_API_URL=${VITE_API_URL}
+
+# Debug output for build environment
+RUN echo "Building with VITE_API_URL=${VITE_API_URL}"
+
 # Build the application
 ENV NODE_ENV=production
 RUN npm run build
@@ -23,8 +30,17 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 # Copy nginx configuration
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
+# Debug output for runtime configuration
+RUN echo "Initial container setup - creating env.js"
+RUN echo "window.env = {};" > /usr/share/nginx/html/env.js
+
+# Copy and setup entrypoint script
+COPY docker-entrypoint.sh /
+RUN chmod +x /docker-entrypoint.sh
+
 # Expose port
 EXPOSE 80
 
-# Command to run nginx
+# Use entrypoint script to update env.js at runtime
+ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["nginx", "-g", "daemon off;"]

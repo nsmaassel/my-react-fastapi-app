@@ -2,13 +2,13 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './e2e',
-  fullyParallel: false, // Disable parallel execution for more stable tests
+  fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  retries: 2, // Increase retries for flaky Docker environment
-  workers: 1,
+  retries: process.env.CI ? 2 : 0,
+  workers: process.env.CI ? 1 : undefined,
   reporter: 'html',
   use: {
-    baseURL: process.env.PLAYWRIGHT_TEST_BASE_URL || 'http://localhost:3000',
+    baseURL: process.env.PLAYWRIGHT_TEST_BASE_URL || 'http://localhost:3001',
     trace: 'on-first-retry',
     viewport: { width: 1280, height: 720 },
     actionTimeout: 15000,
@@ -37,7 +37,11 @@ export default defineConfig({
       },
     },
   ],
-  webServer: undefined,
+  webServer: {
+    command: 'npm run dev',
+    url: 'http://localhost:3001',
+    reuseExistingServer: !process.env.CI,
+  },
   // Increase global timeout for Docker environment
   timeout: 60000,
 });
